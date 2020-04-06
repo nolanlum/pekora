@@ -1,0 +1,24 @@
+package(default_visibility = ['//pekora:__subpackages__'])
+
+load("//pekora:variables.bzl", "PEKORA_DEFAULT_COPTS")
+
+cc_library(
+    name = "audio",
+    srcs = [
+        "device.cc",
+        "session.cc",
+        "wsapi_enumerator.cc",
+    ],
+    hdrs = [
+        "device.h",
+        "constants.h",
+        "session.h",
+        "wsapi_enumerator.h",
+    ],
+    copts = PEKORA_DEFAULT_COPTS,
+    deps = [
+        "@com_google_absl//absl/strings:str_format",
+        "@com_google_absl//absl/synchronization",
+        "@com_google_glog//:glog",
+    ],
+)

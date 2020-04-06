@@ -1,0 +1,18 @@
+package(default_visibility = ['//visibility:public'])
+
+load("//pekora:variables.bzl", "PEKORA_DEFAULT_COPTS", "PEKORA_DEFUALT_LINKOPTS")
+
+cc_binary(
+    name = "pekora",
+    srcs = [
+        "main.cc",
+    ],
+    copts = PEKORA_DEFAULT_COPTS,
+    linkopts = PEKORA_DEFUALT_LINKOPTS,
+    deps = [
+        "//opus:opus",
+        "//pekora/audio",
+        "@com_google_absl//absl/strings:str_format",
+        "@com_google_glog//:glog",
+    ],
+)
