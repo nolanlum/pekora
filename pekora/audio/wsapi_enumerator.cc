@@ -44,40 +44,13 @@ HRESULT WsapiDeviceEnumerator::Enumerate(EDataFlow endpoint_type) {
   hr = this->device_collection_->GetCount(&device_count);
   CHECK(!FAILED(hr)) << "Could not get audio device count";
 
-  std::wstring_convert<std::codecvt_utf8<wchar_t>> wstring_convert;
   for (UINT i = 0; i < device_count; i++) {
     device_list.push_back(DeviceDescription());
     DeviceDescription *waspi_device = &device_list[i];
 
     hr = this->device_collection_->Item(i, &waspi_device->device);
     CHECK(!FAILED(hr)) << "Could not get audio device";
-
-    LPWSTR endpoint_id = NULL;
-    hr = waspi_device->device->GetId(&endpoint_id);
-    CHECK(!FAILED(hr)) << "Could not get audio device endpoint ID";
-    waspi_device->endpoint_id = wstring_convert.to_bytes(endpoint_id);
-
-    IPropertyStore *pProps = NULL;
-    hr = waspi_device->device->OpenPropertyStore(STGM_READ, &pProps);
-    CHECK(!FAILED(hr)) << "Could not open audio device property store";
-
-    PROPVARIANT prop_name;
-    PropVariantInit(&prop_name);
-    hr = pProps->GetValue(PKEY_Device_FriendlyName, &prop_name);
-    CHECK(!FAILED(hr)) << "Could not get audio device friendly name";
-    waspi_device->friendly_name = wstring_convert.to_bytes(prop_name.pwszVal);
-
-    PROPVARIANT prop_supports_raw;
-    PropVariantInit(&prop_supports_raw);
-    hr = pProps->GetValue(PKEY_Devices_AudioDevice_RawProcessingSupported, &prop_name);
-    CHECK(!FAILED(hr)) << "Could not query raw processing support";
-    waspi_device->supports_raw_mode = prop_supports_raw.boolVal;
-
-    CoTaskMemFree(endpoint_id);
-    endpoint_id = NULL;
-    PropVariantClear(&prop_name);
-    PropVariantClear(&prop_supports_raw);
-    pProps->Release();
+    waspi_device->QueryDeviceInfo();
   }
 
   this->has_data = true;
@@ -119,13 +92,13 @@ const std::vector <DeviceDescription> WsapiDeviceEnumerator::GetDeviceList() con
   return this->device_list;
 }
 
-AudioInputDevice WsapiDeviceEnumerator::OpenInputDevice(int device_index) {
+IAudioClient3 *WsapiDeviceEnumerator::OpenDevice(IMMDevice *device, bool in_raw_mode) {
   IAudioClient3 *audio_client = NULL;
-  HRESULT hr = this->device_list[device_index].device->Activate(
+  HRESULT hr = device->Activate(
       IID_IAudioClient3, CLSCTX_ALL, NULL, (void**) &audio_client);
   CHECK(!FAILED(hr)) << "Could not activate audio device";
 
-  if (this->device_list[device_index].supports_raw_mode) {
+  if (in_raw_mode) {
     AudioClientProperties audio_props = {0};
     audio_props.cbSize = sizeof(AudioClientProperties);
     audio_props.eCategory = AudioCategory_Media;
@@ -134,32 +107,77 @@ AudioInputDevice WsapiDeviceEnumerator::OpenInputDevice(int device_index) {
     CHECK(!FAILED(hr)) << "Call to SetClientProperties failed: " << _com_error(hr).ErrorMessage();
   }
 
-  this->device_list[device_index].device = NULL;
-  this->Cleanup();
+  return audio_client;
+}
 
-  return AudioInputDevice(audio_client);
+IAudioClient3 *WsapiDeviceEnumerator::OpenDefaultDevice(EDataFlow data_flow) {
+  DeviceDescription dd;
+  HRESULT hr = this->device_enumerator_->GetDefaultAudioEndpoint(data_flow, ERole::eConsole, &dd.device);
+  CHECK(!FAILED(hr)) << "Could not get default audio device";
+  dd.QueryDeviceInfo();
+
+  DLOG(INFO) << "Opening default device: " << dd.friendly_name;
+  return this->OpenDevice(dd.device, dd.supports_raw_mode);
+}
+
+AudioInputDevice WsapiDeviceEnumerator::OpenInputDevice(int device_index) {
+  if (device_index > 0) {
+    DeviceDescription *dd = &this->device_list[device_index];
+    IAudioClient3 *audio_client = this->OpenDevice(dd->device, dd->supports_raw_mode);
+
+    this->device_list[device_index].device = NULL;
+    this->Cleanup();
+
+    return AudioInputDevice(audio_client);
+  } else {
+    return AudioInputDevice(this->OpenDefaultDevice(EDataFlow::eCapture));
+  }
 }
 
 AudioOutputDevice WsapiDeviceEnumerator::OpenOutputDevice(int device_index) {
-  IAudioClient3 *audio_client = NULL;
-  HRESULT hr = this->device_list[device_index].device->Activate(
-      IID_IAudioClient3, CLSCTX_ALL, NULL, (void**) &audio_client);
-  CHECK(!FAILED(hr)) << "Could not activate audio device";
+  if (device_index > 0) {
+    DeviceDescription *dd = &this->device_list[device_index];
+    IAudioClient3 *audio_client = this->OpenDevice(dd->device, dd->supports_raw_mode);
 
-  if (this->device_list[device_index].supports_raw_mode) {
-    AudioClientProperties audio_props = {0};
-    audio_props.cbSize = sizeof(AudioClientProperties);
-    audio_props.eCategory = AudioCategory_Media;
-    audio_props.Options |= AUDCLNT_STREAMOPTIONS_RAW;
-    hr = audio_client->SetClientProperties(&audio_props);
-    CHECK(!FAILED(hr)) << "Call to SetClientProperties failed: " << _com_error(hr).ErrorMessage();
+    this->device_list[device_index].device = NULL;
+    this->Cleanup();
+
+    return AudioOutputDevice(audio_client);
+  } else {
+    return AudioOutputDevice(this->OpenDefaultDevice(EDataFlow::eRender));
   }
-
-  this->device_list[device_index].device = NULL;
-  this->Cleanup();
-
-  return AudioOutputDevice(audio_client);
 }
 
+void DeviceDescription::QueryDeviceInfo() {
+  CHECK_NOTNULL(this->device);
+
+  LPWSTR endpoint_id = NULL;
+  std::wstring_convert<std::codecvt_utf8<wchar_t>> wstring_convert;
+  HRESULT hr = this->device->GetId(&endpoint_id);
+  CHECK(!FAILED(hr)) << "Could not get audio device endpoint ID";
+  this->endpoint_id = wstring_convert.to_bytes(endpoint_id);
+
+  IPropertyStore *pProps = NULL;
+  hr = this->device->OpenPropertyStore(STGM_READ, &pProps);
+  CHECK(!FAILED(hr)) << "Could not open audio device property store";
+
+  PROPVARIANT prop_name;
+  PropVariantInit(&prop_name);
+  hr = pProps->GetValue(PKEY_Device_FriendlyName, &prop_name);
+  CHECK(!FAILED(hr)) << "Could not get audio device friendly name";
+  this->friendly_name = wstring_convert.to_bytes(prop_name.pwszVal);
+
+  PROPVARIANT prop_supports_raw;
+  PropVariantInit(&prop_supports_raw);
+  hr = pProps->GetValue(PKEY_Devices_AudioDevice_RawProcessingSupported, &prop_name);
+  CHECK(!FAILED(hr)) << "Could not query raw processing support";
+  this->supports_raw_mode = prop_supports_raw.boolVal;
+
+  CoTaskMemFree(endpoint_id);
+  endpoint_id = NULL;
+  PropVariantClear(&prop_name);
+  PropVariantClear(&prop_supports_raw);
+  pProps->Release();
+}
 } // namespace audio
 } // namespace pekora

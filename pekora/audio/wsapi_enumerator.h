@@ -18,8 +18,11 @@ const CLSID CLSID_MMDeviceEnumerator = __uuidof(MMDeviceEnumerator);
 const IID IID_IMMDeviceEnumerator = __uuidof(IMMDeviceEnumerator);
 const IID IID_IAudioClient3 = __uuidof(IAudioClient3);
 
-struct DeviceDescription {
-  IMMDevice *device;
+class DeviceDescription {
+ public:
+  void QueryDeviceInfo();
+
+  IMMDevice *device = NULL;
   std::string endpoint_id;
   std::string friendly_name;
   bool supports_raw_mode;
@@ -41,6 +44,8 @@ class WsapiDeviceEnumerator {
 
  private:
   HRESULT Enumerate(EDataFlow);
+  IAudioClient3* OpenDevice(IMMDevice*, bool);
+  IAudioClient3* OpenDefaultDevice(EDataFlow);
 
   bool has_data = false;
 
