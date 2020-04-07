@@ -1,4 +1,6 @@
 #ifndef PEKORA_CONSTANTS_H
 #define PEKORA_CONSTANTS_H
 
+
+
 #endif //PEKORA_CONSTANTS_H

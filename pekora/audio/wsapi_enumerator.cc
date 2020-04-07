@@ -15,12 +15,23 @@ namespace pekora {
 namespace audio {
 
 WsapiDeviceEnumerator::WsapiDeviceEnumerator() {
+  HRESULT hr = CoInitializeEx(NULL, COINIT::COINIT_MULTITHREADED);
+  CHECK(!FAILED(hr)) << "Could not CoInitializeEx";
+
+  hr = CoCreateInstance(
+      CLSID_MMDeviceEnumerator, NULL, CLSCTX_ALL, IID_IMMDeviceEnumerator, (void **) &this->device_enumerator_);
+  CHECK(!FAILED(hr)) << "Could not create MMDeviceEnumerator";
 }
 
 WsapiDeviceEnumerator::~WsapiDeviceEnumerator() {
   if (this->has_data) {
     HRESULT hr = this->Cleanup();
-    CHECK(!FAILED(hr)) << "Cleanup during WsapiDeviceEnumerator failed";
+    CHECK(!FAILED(hr)) << "Cleanup during ~WsapiDeviceEnumerator failed";
+  }
+
+  if (this->device_enumerator_ != NULL) {
+    this->device_enumerator_->Release();
+    this->device_enumerator_ = NULL;
   }
 }
 
@@ -30,14 +41,7 @@ HRESULT WsapiDeviceEnumerator::Enumerate(EDataFlow endpoint_type) {
     CHECK(!FAILED(cleanup_hr)) << "Cleanup before WsapiDeviceEnumerator::Enumerate failed";
   }
 
-  HRESULT hr = CoInitializeEx(NULL, COINIT::COINIT_MULTITHREADED);
-  CHECK(!FAILED(hr)) << "Could not CoInitializeEx";
-
-  hr = CoCreateInstance(
-      CLSID_MMDeviceEnumerator, NULL, CLSCTX_ALL, IID_IMMDeviceEnumerator, (void **) &this->device_enumerator_);
-  CHECK(!FAILED(hr)) << "Could not create MMDeviceEnumerator";
-
-  hr = this->device_enumerator_->EnumAudioEndpoints(endpoint_type, DEVICE_STATE_ACTIVE, &this->device_collection_);
+  HRESULT hr = this->device_enumerator_->EnumAudioEndpoints(endpoint_type, DEVICE_STATE_ACTIVE, &this->device_collection_);
   CHECK(!FAILED(hr)) << "Could not EnumAudioEndpoints";
 
   UINT device_count = 0;
@@ -66,6 +70,10 @@ HRESULT WsapiDeviceEnumerator::EnumerateOutput() {
 }
 
 HRESULT WsapiDeviceEnumerator::Cleanup() {
+  if (!this->has_data) {
+    return 0;
+  }
+
   for (int i = 0; i < this->device_list.size(); i++) {
     DeviceDescription *waspi_device = &device_list[i];
     if (waspi_device->device != NULL) {
@@ -80,11 +88,8 @@ HRESULT WsapiDeviceEnumerator::Cleanup() {
     this->device_collection_->Release();
     this->device_collection_ = NULL;
   }
-  if (this->device_enumerator_ != NULL) {
-    this->device_enumerator_->Release();
-    this->device_enumerator_ = NULL;
-  }
 
+  this->has_data = false;
   return 0;
 }
 
@@ -110,42 +115,40 @@ IAudioClient3 *WsapiDeviceEnumerator::OpenDevice(IMMDevice *device, bool in_raw_
   return audio_client;
 }
 
-IAudioClient3 *WsapiDeviceEnumerator::OpenDefaultDevice(EDataFlow data_flow) {
-  DeviceDescription dd;
-  HRESULT hr = this->device_enumerator_->GetDefaultAudioEndpoint(data_flow, ERole::eConsole, &dd.device);
-  CHECK(!FAILED(hr)) << "Could not get default audio device";
-  dd.QueryDeviceInfo();
-
-  DLOG(INFO) << "Opening default device: " << dd.friendly_name;
-  return this->OpenDevice(dd.device, dd.supports_raw_mode);
-}
-
 AudioInputDevice WsapiDeviceEnumerator::OpenInputDevice(int device_index) {
+  DeviceDescription dd;
+
   if (device_index > 0) {
-    DeviceDescription *dd = &this->device_list[device_index];
-    IAudioClient3 *audio_client = this->OpenDevice(dd->device, dd->supports_raw_mode);
-
+    dd = this->device_list[device_index];
     this->device_list[device_index].device = NULL;
-    this->Cleanup();
-
-    return AudioInputDevice(audio_client);
   } else {
-    return AudioInputDevice(this->OpenDefaultDevice(EDataFlow::eCapture));
+    HRESULT hr = this->device_enumerator_->GetDefaultAudioEndpoint(EDataFlow::eCapture, ERole::eConsole, &dd.device);
+    CHECK(!FAILED(hr)) << "Could not get default audio capture device";
+    dd.QueryDeviceInfo();
+
+    DLOG(INFO) << "Opening default capture device: " << dd.friendly_name;
   }
+
+  this->Cleanup();
+  return AudioInputDevice(dd.device, this->OpenDevice(dd.device, dd.supports_raw_mode));
 }
 
 AudioOutputDevice WsapiDeviceEnumerator::OpenOutputDevice(int device_index) {
+  DeviceDescription dd;
+
   if (device_index > 0) {
-    DeviceDescription *dd = &this->device_list[device_index];
-    IAudioClient3 *audio_client = this->OpenDevice(dd->device, dd->supports_raw_mode);
-
+    dd = this->device_list[device_index];
     this->device_list[device_index].device = NULL;
-    this->Cleanup();
-
-    return AudioOutputDevice(audio_client);
   } else {
-    return AudioOutputDevice(this->OpenDefaultDevice(EDataFlow::eRender));
+    HRESULT hr = this->device_enumerator_->GetDefaultAudioEndpoint(EDataFlow::eRender, ERole::eConsole, &dd.device);
+    CHECK(!FAILED(hr)) << "Could not get default audio render device";
+    dd.QueryDeviceInfo();
+
+    DLOG(INFO) << "Opening default render device: " << dd.friendly_name;
   }
+
+  this->Cleanup();
+  return AudioOutputDevice(dd.device, this->OpenDevice(dd.device, dd.supports_raw_mode));
 }
 
 void DeviceDescription::QueryDeviceInfo() {

@@ -2,6 +2,7 @@
 #define PEKORA_PEKORA_AUDIO_DEVICE_H_
 
 #include "glog/logging.h"
+#include "initguid.h"
 #include "audioclient.h"
 #include "mmdeviceapi.h"
 #include "Winerror.h"
@@ -13,21 +14,22 @@ const float REFERENCE_TICKS_PER_MS = 10000.0;
 
 class AudioDevice {
  public:
-  AudioDevice(IAudioClient3*);
+  AudioDevice(IMMDevice*, IAudioClient3*);
 
   void PrintCapabilities();
  private:
+  IMMDevice *device_;
   IAudioClient3 *audio_client_;
 };
 
 class AudioInputDevice : public AudioDevice {
  public:
-  AudioInputDevice(IAudioClient3*);
+  AudioInputDevice(IMMDevice*, IAudioClient3*);
 };
 
 class AudioOutputDevice : public AudioDevice {
  public:
-  AudioOutputDevice(IAudioClient3*);
+  AudioOutputDevice(IMMDevice*, IAudioClient3*);
 };
 
 } // namespace audio

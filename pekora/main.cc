@@ -6,10 +6,7 @@
 #include "audio/wsapi_enumerator.h"
 #include "audio/device.h"
 
-int main(int argc, char *argv[]) {
-  FLAGS_logtostderr = 1;
-  google::InitGoogleLogging(argv[0]);
-
+void printDevices() {
   pekora::audio::WsapiDeviceEnumerator ac;
   ac.EnumerateInput();
   LOG(INFO) << "Input Device Count: " << ac.GetDeviceList().size() << std::endl;
@@ -18,8 +15,6 @@ int main(int argc, char *argv[]) {
         << absl::StreamFormat("%d: %s (%s)", i, ac.GetDeviceList()[i].friendly_name, ac.GetDeviceList()[i].endpoint_id)
         << std::endl;
   }
-  pekora::audio::AudioInputDevice input_device = ac.OpenInputDevice(-1);
-  input_device.PrintCapabilities();
 
   ac.EnumerateOutput();
   LOG(INFO) << "Output Device Count: " << ac.GetDeviceList().size() << std::endl;
@@ -28,6 +23,17 @@ int main(int argc, char *argv[]) {
         << absl::StreamFormat("%d: %s (%s)", i, ac.GetDeviceList()[i].friendly_name, ac.GetDeviceList()[i].endpoint_id)
         << std::endl;
   }
+}
+
+int main(int argc, char *argv[]) {
+  FLAGS_logtostderr = 1;
+  google::InitGoogleLogging(argv[0]);
+
+  pekora::audio::WsapiDeviceEnumerator ac;
+
+  pekora::audio::AudioInputDevice input_device = ac.OpenInputDevice(-1);
+  input_device.PrintCapabilities();
+
   pekora::audio::AudioOutputDevice output_device = ac.OpenOutputDevice(-1);
   output_device.PrintCapabilities();
 

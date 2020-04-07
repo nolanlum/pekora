@@ -45,7 +45,6 @@ class WsapiDeviceEnumerator {
  private:
   HRESULT Enumerate(EDataFlow);
   IAudioClient3* OpenDevice(IMMDevice*, bool);
-  IAudioClient3* OpenDefaultDevice(EDataFlow);
 
   bool has_data = false;
 
